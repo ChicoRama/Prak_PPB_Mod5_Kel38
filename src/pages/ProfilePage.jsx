@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Shield, Copy, Check, Heart, FileText, UserEdit, Trash2, ArrowRight } from 'lucide-react'
+import { Shield, Copy, Check, Heart, FileText, UserCog, Trash2, ArrowRight } from 'lucide-react'
 import userService from '../services/userService'
 import { useFavorites } from '../hooks/useFavorites'
 import { getAllDraftIds, loadDraft, deleteDraft } from '../utils/draftStorage'
@@ -35,7 +35,7 @@ export default function ProfilePage({ onNavigateEditProfile, onResumeDraft }) {
           <p className="lede">Kredensial operator, arsip draft, tentang kami, dan kontak.</p>
         </div>
         <button type="button" className="btn btn--primary" onClick={onNavigateEditProfile}>
-          <UserEdit size={16} /> Edit Profile
+          <UserCog size={16} /> Edit Profile
         </button>
       </section>
 
@@ -106,7 +106,7 @@ export default function ProfilePage({ onNavigateEditProfile, onResumeDraft }) {
         )}
       </section>
 
-      {/* Section About & Contact (Dipindahkan ke dalam Profile) */}
+      {/* Section About & Contact */}
       <section className="profile-section">
         <h2>About Us</h2>
         <About />
