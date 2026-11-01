@@ -1,4 +1,21 @@
 import { apiClient, IS_SUPABASE } from '../config/api'
+import { getCache, setCache, clearCache } from '../utils/cache'
+
+const SOFT_DELETED_KEY = 'bore_barrel_soft_deleted_ids'
+
+export const getSoftDeletedIds = () => {
+  try {
+    return JSON.parse(localStorage.getItem(SOFT_DELETED_KEY)) || []
+  } catch {
+    return []
+  }
+}
+
+export const setSoftDeletedIds = (ids) => {
+  try {
+    localStorage.setItem(SOFT_DELETED_KEY, JSON.stringify(ids))
+  } catch {}
+}
 
 export const normalizeProduct = (item) => {
   if (!item) return null
@@ -14,21 +31,35 @@ export const normalizeProduct = (item) => {
             quantity: s.substring(colonIndex + 1).trim(),
           }
         }
-        return {
-          id: `spec-${idx}`,
-          name: 'Specification',
-          quantity: s.trim(),
-        }
+        return { id: `spec-${idx}`, name: 'Specification', quantity: s.trim() }
       }
       return s
     })
   } else if (Array.isArray(item.ingredients)) {
     specsList = item.ingredients
   }
+
   const stepsList =
     Array.isArray(item.steps) && item.steps.length > 0
       ? item.steps
-      : ['Verify firearm is completely unloaded and point in safe direction.', 'Inspect receiver and mechanism for maintenance.']
+      : ['Verify firearm is completely unloaded.', 'Inspect receiver and mechanism.']
+
+  // Multi-image parsing
+  let images = []
+  if (Array.isArray(item.images) && item.images.length > 0) {
+    images = item.images
+  } else if (typeof item.images === 'string' && item.images.trim()) {
+    try {
+      images = JSON.parse(item.images)
+    } catch {
+      images = item.images.split(',').map((s) => s.trim())
+    }
+  } else {
+    images = [item.image_url || item.image || '/guns/pistol.svg']
+  }
+
+  const softDeleted = getSoftDeletedIds()
+  const isArchived = Boolean(item.is_archived || softDeleted.includes(String(item.id)))
 
   return {
     ...item,
@@ -39,15 +70,22 @@ export const normalizeProduct = (item) => {
     caliber: item.caliber || 'Standard',
     price: Number(item.price ?? item.cook_time ?? 0),
     description: item.description || '',
-    image_url: item.image_url || item.image || '/guns/pistol.svg',
-    image: item.image_url || item.image || '/guns/pistol.svg',
+    image_url: images[0] || '/guns/pistol.svg',
+    images: images,
     ingredients: specsList,
     steps: stepsList,
+    is_archived: isArchived,
   }
 }
 
 class GunService {
-  async getGuns(params = {}) {
+  async getGuns(params = {}, bypassCache = false) {
+    const cacheKey = `guns_${JSON.stringify(params)}`
+    if (!bypassCache) {
+      const cached = getCache(cacheKey)
+      if (cached) return cached
+    }
+
     if (IS_SUPABASE) {
       const queryParts = ['select=*']
       if (params.search) {
@@ -68,7 +106,7 @@ class GunService {
       const queryString = queryParts.join('&')
       const data = await apiClient.get(`/rest/v1/products?${queryString}`)
       const list = Array.isArray(data) ? data.map(normalizeProduct) : []
-      return {
+      const res = {
         success: true,
         data: list,
         pagination: {
@@ -77,11 +115,15 @@ class GunService {
           limit: params.limit || 50,
         },
       }
+      setCache(cacheKey, res)
+      return res
     }
     const clean = Object.fromEntries(
-      Object.entries(params).filter(([, v]) => v !== '' && v != null),
+      Object.entries(params).filter(([, v]) => v !== '' && v != null)
     )
-    return apiClient.get('/api/v1/recipes', { params: clean })
+    const res = await apiClient.get('/api/v1/recipes', { params: clean })
+    setCache(cacheKey, res)
+    return res
   }
 
   async getGunById(id) {
@@ -96,6 +138,7 @@ class GunService {
   }
 
   async createGun(data) {
+    clearCache()
     if (IS_SUPABASE) {
       const specsArray = Array.isArray(data.ingredients)
         ? data.ingredients.map((i) => `${i.name}: ${i.quantity}`)
@@ -104,12 +147,13 @@ class GunService {
         : []
       const payload = {
         name: data.name,
-        type: data.type || (data.category === 'minuman' ? 'Rifle' : 'Pistol'),
+        type: data.type || 'Pistol',
         caliber: data.caliber || '9mm',
-        price: Number(data.price ?? data.cook_time ?? 0),
+        price: Number(data.price ?? 0),
         description: data.description || '',
         specs: specsArray,
-        image_url: data.image_url || null,
+        image_url: Array.isArray(data.images) ? data.images[0] : data.image_url,
+        images: Array.isArray(data.images) ? data.images : [data.image_url],
       }
       const res = await apiClient.post('/rest/v1/products', payload, {
         headers: { Prefer: 'return=representation' },
@@ -121,24 +165,18 @@ class GunService {
   }
 
   async updateGun(id, data) {
+    clearCache()
     if (IS_SUPABASE) {
-      const specsArray = Array.isArray(data.ingredients)
-        ? data.ingredients.map((i) => `${i.name}: ${i.quantity}`)
-        : Array.isArray(data.specs)
-        ? data.specs
-        : undefined
-      const payload = {
-        updated_at: new Date().toISOString(),
-      }
+      const payload = { updated_at: new Date().toISOString() }
       if (data.name !== undefined) payload.name = data.name
       if (data.type !== undefined) payload.type = data.type
       if (data.caliber !== undefined) payload.caliber = data.caliber
-      if (data.price !== undefined || data.cook_time !== undefined) {
-        payload.price = Number(data.price ?? data.cook_time ?? 0)
-      }
+      if (data.price !== undefined) payload.price = Number(data.price)
       if (data.description !== undefined) payload.description = data.description
-      if (specsArray !== undefined) payload.specs = specsArray
-      if (data.image_url !== undefined) payload.image_url = data.image_url
+      if (data.images !== undefined) {
+        payload.images = data.images
+        payload.image_url = data.images[0]
+      }
       const res = await apiClient.patch(`/rest/v1/products?id=eq.${id}`, payload, {
         headers: { Prefer: 'return=representation' },
       })
@@ -148,14 +186,29 @@ class GunService {
     return apiClient.put(`/api/v1/recipes/${id}`, data)
   }
 
-  async patchGun(id, data) {
-    if (IS_SUPABASE) {
-      return this.updateGun(id, data)
+  // Soft Delete (Archive)
+  async softDeleteGun(id) {
+    clearCache()
+    const current = getSoftDeletedIds()
+    if (!current.includes(String(id))) {
+      current.push(String(id))
+      setSoftDeletedIds(current)
     }
-    return apiClient.patch(`/api/v1/recipes/${id}`, data)
+    return { success: true }
   }
 
-  async deleteGun(id) {
+  // Restore Soft Delete
+  async restoreGun(id) {
+    clearCache()
+    const current = getSoftDeletedIds().filter((item) => item !== String(id))
+    setSoftDeletedIds(current)
+    return { success: true }
+  }
+
+  // Permanent Delete
+  async deleteGunPermanently(id) {
+    clearCache()
+    this.restoreGun(id)
     if (IS_SUPABASE) {
       await apiClient.delete(`/rest/v1/products?id=eq.${id}`)
       return { success: true }

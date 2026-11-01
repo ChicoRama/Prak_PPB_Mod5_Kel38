@@ -1,15 +1,13 @@
-import { Plus } from 'lucide-react'
+import { Plus, ShoppingBag } from 'lucide-react'
 import { useFavorites } from '../hooks/useFavorites'
 
 const NAV_ITEMS = [
   { id: 'Catalog', label: 'Catalog' },
   { id: 'Favorites', label: 'Favorites', hasBadge: true },
   { id: 'Profile', label: 'Profile' },
-  { id: 'About', label: 'About' },
-  { id: 'Contact', label: 'Contact' },
 ]
 
-function Header({ tab, onTab, onNavigateCreate }) {
+function Header({ tab, onTab, onNavigateCreate, cartCount, onOpenCart }) {
   const { favorites } = useFavorites()
   const favCount = favorites ? favorites.length : 0
 
@@ -21,6 +19,7 @@ function Header({ tab, onTab, onNavigateCreate }) {
         </div>
         <span className="brand display">Bore &amp; Barrel</span>
       </div>
+
       <nav className="nav">
         {NAV_ITEMS.map((item) => (
           <button
@@ -30,22 +29,23 @@ function Header({ tab, onTab, onNavigateCreate }) {
             onClick={() => onTab(item.id)}
           >
             {item.label}
-            {item.hasBadge && favCount > 0 && (
-              <span className="nav-badge">{favCount}</span>
-            )}
+            {item.hasBadge && favCount > 0 && <span className="nav-badge">{favCount}</span>}
           </button>
         ))}
       </nav>
-      {onNavigateCreate && (
-        <button
-          type="button"
-          className="btn btn--primary btn--sm header-cta"
-          onClick={onNavigateCreate}
-          title="Register new hardware"
-        >
-          <Plus size={15} /> Add Hardware
+
+      <div className="header-right-actions">
+        <button type="button" className="cart-trigger-btn" onClick={onOpenCart} title="Keranjang Belanja">
+          <ShoppingBag size={18} />
+          {cartCount > 0 && <span className="cart-badge">{cartCount}</span>}
         </button>
-      )}
+
+        {onNavigateCreate && (
+          <button type="button" className="btn btn--primary btn--sm header-cta" onClick={onNavigateCreate}>
+            <Plus size={15} /> Add Hardware
+          </button>
+        )}
+      </div>
     </header>
   )
 }

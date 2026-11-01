@@ -1,19 +1,34 @@
 import { apiClient, IS_SUPABASE } from '../config/api'
 
+const LOCAL_VOTES_KEY = 'bore_barrel_review_votes'
+
+const getLocalVotes = () => {
+  try {
+    return JSON.parse(localStorage.getItem(LOCAL_VOTES_KEY)) || {}
+  } catch {
+    return {}
+  }
+}
+
 class ReviewService {
   async getReviews(gunId) {
     if (IS_SUPABASE) {
       const data = await apiClient.get(
-        `/rest/v1/reviews?product_id=eq.${gunId}&select=*&order=created_at.desc`,
+        `/rest/v1/reviews?product_id=eq.${gunId}&select=*&order=created_at.desc`
       )
+      const votes = getLocalVotes()
       const list = Array.isArray(data)
         ? data.map((r) => ({
             id: r.id,
             product_id: r.product_id,
             user_identifier: r.user_id ? `Operator ${String(r.user_id).substring(0, 8)}` : 'Anonymous',
+            user_id: r.user_id,
             rating: r.rating,
             comment: r.comment || '',
             created_at: r.created_at,
+            upvotes: (r.upvotes || 0) + (votes[r.id]?.up || 0),
+            downvotes: (r.downvotes || 0) + (votes[r.id]?.down || 0),
+            userVote: votes[r.id]?.myVote || null,
           }))
         : []
       return { success: true, data: list }
@@ -46,7 +61,7 @@ class ReviewService {
           rating: Number(reviewData.rating),
           comment: reviewData.comment,
         },
-        { headers: { Prefer: 'return=representation' } },
+        { headers: { Prefer: 'return=representation' } }
       )
       return { success: true, data: Array.isArray(res) ? res[0] : res }
     }
@@ -59,6 +74,29 @@ class ReviewService {
       return { success: true }
     }
     return apiClient.delete(`/api/v1/reviews/${reviewId}`)
+  }
+
+  async voteReview(reviewId, type) {
+    const votes = getLocalVotes()
+    const current = votes[reviewId] || { up: 0, down: 0, myVote: null }
+
+    if (current.myVote === type) {
+      // Toggle off
+      if (type === 'up') current.up = Math.max(0, current.up - 1)
+      if (type === 'down') current.down = Math.max(0, current.down - 1)
+      current.myVote = null
+    } else {
+      if (current.myVote === 'up') current.up = Math.max(0, current.up - 1)
+      if (current.myVote === 'down') current.down = Math.max(0, current.down - 1)
+
+      if (type === 'up') current.up += 1
+      if (type === 'down') current.down += 1
+      current.myVote = type
+    }
+
+    votes[reviewId] = current
+    localStorage.setItem(LOCAL_VOTES_KEY, JSON.stringify(votes))
+    return { success: true, data: current }
   }
 }
 
